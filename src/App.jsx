@@ -87,12 +87,12 @@ function estimatePower(score, totalWallets) {
 
 const DEFAULT_METRICS = {
   tx: { label: "Transactions", cap: 300, weight: 18, source: "auto", type: "number", unit: "" },
-  volume: { label: "Volume (ETH)", cap: 5, weight: 18, source: "auto", type: "number", unit: "Ξ" },
+  volume: { label: "Volume (ETH)", cap: 5, weight: 18, source: "auto", type: "number", unit: "Ξ", decimals: 6 },
   nft: { label: "NFTs held", cap: 15, weight: 12, source: "auto", type: "number", unit: "" },
   og: { label: "OG (first 3 months)", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
   domain: { label: ".ink domain", cap: 1, weight: 8, source: "auto", type: "boolean", unit: "" },
   contracts: { label: "Distinct contracts used", cap: 15, weight: 10, source: "auto", type: "number", unit: "" },
-  gas: { label: "Gas spent (ETH)", cap: 0.03, weight: 8, source: "auto", type: "number", unit: "Ξ" },
+  gas: { label: "Gas spent (ETH)", cap: 0.0005, weight: 8, source: "auto", type: "number", unit: "Ξ", decimals: 8 },
   tydro: { label: "Tydro points", cap: 5000, weight: 18, source: "auto", type: "number", unit: "pts" },
   nado: { label: "Nado points", cap: 5000, weight: 14, source: "manual", type: "number", unit: "pts" },
   kraken: { label: "Kraken verified", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
@@ -350,7 +350,7 @@ function MetricRow({ id, cfg, value, onValueChange, onWeightChange, onCapChange,
           />
         ) : (
           <span className="font-mono text-sm text-[#F4F0FF]">
-            {value.toLocaleString("en-US")}
+            {value.toLocaleString("en-US", cfg.decimals != null ? { maximumFractionDigits: cfg.decimals } : undefined)}
             {cfg.unit ? ` ${cfg.unit}` : ""}
           </span>
         )}
@@ -457,7 +457,7 @@ export default function InkChecker() {
         kraken: data.isKrakenVerified ? 1 : 0,
         domain: data.hasInkDomain ? 1 : 0,
         contracts: data.contractDiversity,
-        gas: Math.round(data.gasSpentEth * 1000000) / 1000000,
+        gas: Math.round(data.gasSpentEth * 1e9) / 1e9,
       }));
       setFirstTxDate(data.firstTxDate || null);
       setTotalWallets(data.totalWallets || null);
