@@ -114,7 +114,7 @@ async function safeJson(res) {
 async function fetchAutoData(address) {
   const [countersRes, nftRes, txRes, firstTxRes, statsRes, tydroRes, krakenRes] = await Promise.allSettled([
     fetch(`${API_BASE}/addresses/${address}/counters`),
-    fetch(`${API_BASE}/addresses/${address}/nft?type=ERC-721,ERC-1155`),
+    fetch(`${API_BASE}/addresses/${address}/nft/collections?type=ERC-721,ERC-1155`),
     fetch(`${API_BASE}/addresses/${address}/transactions`),
     fetch(`${LEGACY_API_BASE}?module=account&action=txlist&address=${address}&sort=asc&page=1&offset=1`),
     fetch(`${API_BASE}/stats`),
@@ -171,7 +171,7 @@ async function fetchAutoData(address) {
   if (nftRes.status === "fulfilled") {
     const data = await safeJson(nftRes.value);
     if (data && Array.isArray(data.items)) {
-      nftCount = data.items.length;
+      nftCount = data.items.reduce((sum, it) => sum + (parseInt(it.amount, 10) || 1), 0);
       nftMore = !!data.next_page_params;
       hasInkDomain = data.items.some((it) => {
         const collAddr =
