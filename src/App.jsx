@@ -5,6 +5,52 @@ const API_BASE = "https://explorer.inkonchain.com/api/v2";
 const LEGACY_API_BASE = "https://explorer.inkonchain.com/api";
 const TYDRO_POINTS_TOKEN = "0x40aBd730Cc9dA34a8EE9823fEaBDBa35E50c4ac7";
 
+// Kraken Verify (EAS attestations on Ink) — addresses/schema straight from @krakenfx/verify.
+const INK_RPC_URL = "https://rpc-gel.inkonchain.com";
+const EAS_CONTRACT_ADDRESS = "0x4200000000000000000000000000000000000021";
+const EAS_INDEXER_ADDRESS = "0x1E8bf2a208AF3f2117A816CFBe15f81741Ba0597";
+const VERIFIED_SCHEMA_UID = "0x8ffa68bde25f7b88e042ea3dff55ff27217b7d1c4bf24f57967b285c5ffe4c8b";
+const SELECTOR_GET_ATTESTATION_UID = "0xab2717dd"; // getAttestationUid(address,bytes32)
+const SELECTOR_GET_ATTESTATION = "0xa3112a64"; // getAttestation(bytes32)
+const ZERO_BYTES32 = "0x" + "0".repeat(64);
+
+function padHexWord(hex) {
+  return hex.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+}
+
+async function ethCall(to, data) {
+  const res = await fetch(INK_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message || "eth_call failed");
+  return json.result;
+}
+
+async function checkKrakenVerified(address) {
+  try {
+    const uidCalldata = SELECTOR_GET_ATTESTATION_UID + padHexWord(address) + padHexWord(VERIFIED_SCHEMA_UID);
+    const uid = await ethCall(EAS_INDEXER_ADDRESS, uidCalldata);
+    if (!uid || uid.toLowerCase() === ZERO_BYTES32) return false;
+
+    const attestCalldata = SELECTOR_GET_ATTESTATION + padHexWord(uid);
+    const raw = await ethCall(EAS_CONTRACT_ADDRESS, attestCalldata);
+    const hex = raw.replace(/^0x/, "");
+    const words = hex.match(/.{1,64}/g) || [];
+    // words[0] is the top-level tuple offset; the tuple's static fields start at words[1].
+    const expirationTime = BigInt("0x" + (words[3] || "0"));
+    const revocationTime = BigInt("0x" + (words[4] || "0"));
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const isExpired = expirationTime !== 0n && expirationTime <= now;
+    const isRevoked = revocationTime > 0n;
+    return !isExpired && !isRevoked;
+  } catch {
+    return false;
+  }
+}
+
 // Ink mainnet went live on December 18, 2024.
 const LAUNCH_DATE = new Date("2024-12-18T00:00:00Z");
 const OG_CUTOFF = new Date(LAUNCH_DATE);
@@ -45,7 +91,7 @@ const DEFAULT_METRICS = {
   og: { label: "OG (first 3 months)", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
   tydro: { label: "Tydro points", cap: 5000, weight: 18, source: "auto", type: "number", unit: "pts" },
   nado: { label: "Nado points", cap: 5000, weight: 14, source: "manual", type: "number", unit: "pts" },
-  kraken: { label: "Kraken verified", cap: 1, weight: 10, source: "manual", type: "boolean", unit: "" },
+  kraken: { label: "Kraken verified", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
 };
 
 function isValidAddress(addr) {
@@ -62,14 +108,17 @@ async function safeJson(res) {
 }
 
 async function fetchAutoData(address) {
-  const [countersRes, nftRes, txRes, firstTxRes, statsRes, tydroRes] = await Promise.allSettled([
+  const [countersRes, nftRes, txRes, firstTxRes, statsRes, tydroRes, krakenRes] = await Promise.allSettled([
     fetch(`${API_BASE}/addresses/${address}/counters`),
     fetch(`${API_BASE}/addresses/${address}/nft?type=ERC-721,ERC-1155`),
     fetch(`${API_BASE}/addresses/${address}/transactions`),
     fetch(`${LEGACY_API_BASE}?module=account&action=txlist&address=${address}&sort=asc&page=1&offset=1`),
     fetch(`${API_BASE}/stats`),
     fetch(`${API_BASE}/addresses/${address}/tokens?type=ERC-20`),
+    checkKrakenVerified(address),
   ]);
+
+  const isKrakenVerified = krakenRes.status === "fulfilled" ? !!krakenRes.value : false;
 
   let tydroPoints = 0;
   if (tydroRes.status === "fulfilled") {
@@ -155,6 +204,7 @@ async function fetchAutoData(address) {
     isOG,
     totalWallets,
     tydroPoints,
+    isKrakenVerified,
   };
 }
 
@@ -362,6 +412,7 @@ export default function InkChecker() {
         nft: data.nftCount,
         og: data.isOG ? 1 : 0,
         tydro: Math.round(data.tydroPoints * 100) / 100,
+        kraken: data.isKrakenVerified ? 1 : 0,
       }));
       setFirstTxDate(data.firstTxDate || null);
       setTotalWallets(data.totalWallets || null);
@@ -440,7 +491,7 @@ export default function InkChecker() {
           How much ink<br />did your wallet leave?
         </h1>
         <p className="text-sm mb-8" style={{ color: "#9186B0" }}>
-          Combines on-chain TX, volume, NFTs, and Tydro points with your Nado points and Kraken verification into a
+          Combines on-chain TX, volume, NFTs, Tydro points, and Kraken verification with your Nado points into a
           single score.
         </p>
 
@@ -594,12 +645,11 @@ export default function InkChecker() {
 
         {!address && !loading && (
           <p className="text-xs font-mono mt-2" style={{ color: "#544A70" }}>
-            TX, volume, NFTs, and Tydro points are read automatically from the Ink explorer. You enter Nado and
-            Kraken yourself.
+            TX, volume, NFTs, Tydro points, and Kraken verification are all read automatically from Ink. You only
+            enter Nado points yourself.
           </p>
         )}
       </div>
     </div>
   );
 }
-
