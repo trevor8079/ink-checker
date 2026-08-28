@@ -142,9 +142,10 @@ async function fetchAutoData(address) {
   if (tydroRes.status === "fulfilled") {
     const data = await safeJson(tydroRes.value);
     const items = data && Array.isArray(data.items) ? data.items : [];
-    const match = items.find(
-      (it) => it.token && it.token.address && it.token.address.toLowerCase() === TYDRO_POINTS_TOKEN.toLowerCase()
-    );
+    const match = items.find((it) => {
+      const tokenAddr = it.token && (it.token.address_hash || it.token.address || it.token.hash);
+      return tokenAddr && tokenAddr.toLowerCase() === TYDRO_POINTS_TOKEN.toLowerCase();
+    });
     if (match) {
       const decimals = parseInt(match.token.decimals, 10) || 0;
       const raw = match.value || "0";
