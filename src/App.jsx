@@ -1,10 +1,14 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Loader2, Search, ChevronDown, ChevronUp, Check, AlertTriangle, Copy, Feather } from "lucide-react";
 
 const API_BASE = "https://explorer.inkonchain.com/api/v2";
 const LEGACY_API_BASE = "https://explorer.inkonchain.com/api";
 const TYDRO_POINTS_TOKEN = "0x40aBd730Cc9dA34a8EE9823fEaBDBa35E50c4ac7";
 const ZNS_DOMAIN_CONTRACT = "0xFb2Cd41a8aeC89EFBb19575C6c48d872cE97A0A5";
+
+// Free, no-signup shared hit counter (abacus.jasoncameron.dev) — tracks total wallets checked across everyone.
+const COUNTER_NAMESPACE = "ink-checker-criptomaniac";
+const COUNTER_KEY = "wallets-checked";
 
 // Kraken Verify (EAS attestations on Ink) — addresses/schema straight from @krakenfx/verify.
 const INK_RPC_URL = "https://rpc-gel.inkonchain.com";
@@ -87,14 +91,14 @@ function estimatePower(score, totalWallets) {
 
 const DEFAULT_METRICS = {
   tx: { label: "Transactions", cap: 300, weight: 8, source: "auto", type: "number", unit: "" },
-  volume: { label: "Volume (ETH)", cap: 5, weight: 18, source: "auto", type: "number", unit: "Ξ", decimals: 6 },
+  volume: { label: "Volume (ETH)", cap: 0.1, weight: 18, source: "auto", type: "number", unit: "Ξ", decimals: 6 },
   nft: { label: "NFTs held", cap: 15, weight: 5, source: "auto", type: "number", unit: "" },
   og: { label: "OG (first 3 months)", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
   domain: { label: ".ink domain", cap: 1, weight: 8, source: "auto", type: "boolean", unit: "" },
   contracts: { label: "Distinct contracts used", cap: 15, weight: 10, source: "auto", type: "number", unit: "" },
-  gas: { label: "Gas spent (ETH)", cap: 0.0005, weight: 8, source: "auto", type: "number", unit: "Ξ", decimals: 8 },
-  tydro: { label: "Tydro points", cap: 5000, weight: 26, source: "auto", type: "number", unit: "pts" },
-  nado: { label: "Nado points", cap: 5000, weight: 22, source: "manual", type: "number", unit: "pts" },
+  gas: { label: "Gas spent (ETH)", cap: 0.00001, weight: 8, source: "auto", type: "number", unit: "Ξ", decimals: 8 },
+  tydro: { label: "Tydro points", cap: 150, weight: 26, source: "auto", type: "number", unit: "pts" },
+  nado: { label: "Nado points", cap: 2000, weight: 22, source: "manual", type: "number", unit: "pts" },
   kraken: { label: "Kraken verified", cap: 1, weight: 16, source: "auto", type: "boolean", unit: "" },
 };
 
@@ -427,6 +431,16 @@ export default function InkChecker() {
   const [sampleNote, setSampleNote] = useState(null);
   const [firstTxDate, setFirstTxDate] = useState(null);
   const [totalWallets, setTotalWallets] = useState(null);
+  const [walletsChecked, setWalletsChecked] = useState(null);
+
+  useEffect(() => {
+    fetch(`https://abacus.jasoncameron.dev/get/${COUNTER_NAMESPACE}/${COUNTER_KEY}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (typeof json.value === "number") setWalletsChecked(json.value);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleCheck = useCallback(async () => {
     const addr = addressInput.trim();
@@ -468,6 +482,12 @@ export default function InkChecker() {
           }.`
         );
       }
+      fetch(`https://abacus.jasoncameron.dev/hit/${COUNTER_NAMESPACE}/${COUNTER_KEY}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (typeof json.value === "number") setWalletsChecked(json.value);
+        })
+        .catch(() => {});
     } catch (e) {
       setFetchIncomplete(true);
       setError("Couldn't connect to the Ink explorer. Check your connection or enter the data manually.");
@@ -549,10 +569,17 @@ export default function InkChecker() {
         <h1 className="font-display text-4xl sm:text-5xl leading-[1.05] mb-2" style={{ color: "#F4F0FF" }}>
           How much ink<br />did your wallet leave?
         </h1>
-        <p className="text-sm mb-8" style={{ color: "#9186B0" }}>
+        <p className="text-sm mb-4" style={{ color: "#9186B0" }}>
           Reads on-chain TX, volume, NFTs, Tydro points, Kraken verification, .ink domain ownership, contract
           diversity, and gas spent automatically, then combines it with your Nado points into a single score.
         </p>
+
+        {walletsChecked !== null && (
+          <p className="font-mono text-[11px] mb-4 flex items-center gap-1.5" style={{ color: "#8B81A8" }}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#7C5CFF" }} />
+            {walletsChecked.toLocaleString("en-US")} wallets checked so far
+          </p>
+        )}
 
         <div className="flex gap-2 mb-2">
           <input
