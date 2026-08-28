@@ -4,6 +4,7 @@ import { Loader2, Search, ChevronDown, ChevronUp, Check, AlertTriangle, Copy, Fe
 const API_BASE = "https://explorer.inkonchain.com/api/v2";
 const LEGACY_API_BASE = "https://explorer.inkonchain.com/api";
 const TYDRO_POINTS_TOKEN = "0x40aBd730Cc9dA34a8EE9823fEaBDBa35E50c4ac7";
+const NADO_REWARDS_ENDPOINT = "https://api.prod.nado.xyz/rewards/v1";
 
 // Kraken Verify (EAS attestations on Ink) — addresses/schema straight from @krakenfx/verify.
 const INK_RPC_URL = "https://rpc-gel.inkonchain.com";
@@ -90,7 +91,7 @@ const DEFAULT_METRICS = {
   nft: { label: "NFTs held", cap: 15, weight: 12, source: "auto", type: "number", unit: "" },
   og: { label: "OG (first 3 months)", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
   tydro: { label: "Tydro points", cap: 5000, weight: 18, source: "auto", type: "number", unit: "pts" },
-  nado: { label: "Nado points", cap: 5000, weight: 14, source: "manual", type: "number", unit: "pts" },
+  nado: { label: "Nado (INK airdrop)", cap: 100, weight: 14, source: "auto", type: "number", unit: "INK" },
   kraken: { label: "Kraken verified", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
 };
 
@@ -108,7 +109,7 @@ async function safeJson(res) {
 }
 
 async function fetchAutoData(address) {
-  const [countersRes, nftRes, txRes, firstTxRes, statsRes, tydroRes, krakenRes] = await Promise.allSettled([
+  const [countersRes, nftRes, txRes, firstTxRes, statsRes, tydroRes, krakenRes, nadoRes] = await Promise.allSettled([
     fetch(`${API_BASE}/addresses/${address}/counters`),
     fetch(`${API_BASE}/addresses/${address}/nft?type=ERC-721,ERC-1155`),
     fetch(`${API_BASE}/addresses/${address}/transactions`),
@@ -116,9 +117,26 @@ async function fetchAutoData(address) {
     fetch(`${API_BASE}/stats`),
     fetch(`${API_BASE}/addresses/${address}/tokens?type=ERC-20`),
     checkKrakenVerified(address),
+    fetch(NADO_REWARDS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ink_airdrop: { address } }),
+    }),
   ]);
 
   const isKrakenVerified = krakenRes.status === "fulfilled" ? !!krakenRes.value : false;
+
+  let nadoAirdrop = 0;
+  if (nadoRes.status === "fulfilled") {
+    const data = await safeJson(nadoRes.value);
+    if (data && data.amount) {
+      try {
+        nadoAirdrop = Number(BigInt(data.amount)) / 1e18;
+      } catch {
+        nadoAirdrop = Number(data.amount) / 1e18;
+      }
+    }
+  }
 
   let tydroPoints = 0;
   if (tydroRes.status === "fulfilled") {
@@ -205,6 +223,7 @@ async function fetchAutoData(address) {
     totalWallets,
     tydroPoints,
     isKrakenVerified,
+    nadoAirdrop,
   };
 }
 
@@ -413,6 +432,7 @@ export default function InkChecker() {
         og: data.isOG ? 1 : 0,
         tydro: Math.round(data.tydroPoints * 100) / 100,
         kraken: data.isKrakenVerified ? 1 : 0,
+        nado: Math.round(data.nadoAirdrop * 10000) / 10000,
       }));
       setFirstTxDate(data.firstTxDate || null);
       setTotalWallets(data.totalWallets || null);
@@ -491,8 +511,8 @@ export default function InkChecker() {
           How much ink<br />did your wallet leave?
         </h1>
         <p className="text-sm mb-8" style={{ color: "#9186B0" }}>
-          Combines on-chain TX, volume, NFTs, Tydro points, and Kraken verification with your Nado points into a
-          single score.
+          Reads on-chain TX, volume, NFTs, Tydro points, Kraken verification, and Nado's INK airdrop allocation —
+          all automatically, straight from Ink.
         </p>
 
         <div className="flex gap-2 mb-2">
@@ -645,8 +665,7 @@ export default function InkChecker() {
 
         {!address && !loading && (
           <p className="text-xs font-mono mt-2" style={{ color: "#544A70" }}>
-            TX, volume, NFTs, Tydro points, and Kraken verification are all read automatically from Ink. You only
-            enter Nado points yourself.
+            Every metric is read automatically from Ink, Tydro, Kraken Verify, and Nado — just paste a wallet.
           </p>
         )}
       </div>
