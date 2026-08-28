@@ -3,6 +3,7 @@ import { Loader2, Search, ChevronDown, ChevronUp, Check, AlertTriangle, Copy, Fe
 
 const API_BASE = "https://explorer.inkonchain.com/api/v2";
 const LEGACY_API_BASE = "https://explorer.inkonchain.com/api";
+const TYDRO_POINTS_TOKEN = "0x40aBd730Cc9dA34a8EE9823fEaBDBa35E50c4ac7";
 
 // Ink mainnet went live on December 18, 2024.
 const LAUNCH_DATE = new Date("2024-12-18T00:00:00Z");
@@ -42,7 +43,7 @@ const DEFAULT_METRICS = {
   volume: { label: "Volume (ETH)", cap: 5, weight: 18, source: "auto", type: "number", unit: "Ξ" },
   nft: { label: "NFTs held", cap: 15, weight: 12, source: "auto", type: "number", unit: "" },
   og: { label: "OG (first 3 months)", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
-  tydro: { label: "Tydro points", cap: 5000, weight: 18, source: "manual", type: "number", unit: "pts" },
+  tydro: { label: "Tydro points", cap: 5000, weight: 18, source: "auto", type: "number", unit: "pts" },
   nado: { label: "Nado points", cap: 5000, weight: 14, source: "manual", type: "number", unit: "pts" },
   kraken: { label: "Kraken verified", cap: 1, weight: 10, source: "manual", type: "boolean", unit: "" },
 };
@@ -61,13 +62,32 @@ async function safeJson(res) {
 }
 
 async function fetchAutoData(address) {
-  const [countersRes, nftRes, txRes, firstTxRes, statsRes] = await Promise.allSettled([
+  const [countersRes, nftRes, txRes, firstTxRes, statsRes, tydroRes] = await Promise.allSettled([
     fetch(`${API_BASE}/addresses/${address}/counters`),
     fetch(`${API_BASE}/addresses/${address}/nft?type=ERC-721,ERC-1155`),
     fetch(`${API_BASE}/addresses/${address}/transactions`),
     fetch(`${LEGACY_API_BASE}?module=account&action=txlist&address=${address}&sort=asc&page=1&offset=1`),
     fetch(`${API_BASE}/stats`),
+    fetch(`${API_BASE}/addresses/${address}/tokens?type=ERC-20`),
   ]);
+
+  let tydroPoints = 0;
+  if (tydroRes.status === "fulfilled") {
+    const data = await safeJson(tydroRes.value);
+    const items = data && Array.isArray(data.items) ? data.items : [];
+    const match = items.find(
+      (it) => it.token && it.token.address && it.token.address.toLowerCase() === TYDRO_POINTS_TOKEN.toLowerCase()
+    );
+    if (match) {
+      const decimals = parseInt(match.token.decimals, 10) || 0;
+      const raw = match.value || "0";
+      try {
+        tydroPoints = Number(BigInt(raw)) / Math.pow(10, decimals);
+      } catch {
+        tydroPoints = Number(raw) / Math.pow(10, decimals);
+      }
+    }
+  }
 
   let totalWallets = null;
   if (statsRes.status === "fulfilled") {
@@ -123,7 +143,19 @@ async function fetchAutoData(address) {
 
   const reached = countersRes.status === "fulfilled" || nftRes.status === "fulfilled" || txRes.status === "fulfilled";
 
-  return { txCount, nftCount, nftMore, volumeEth, sampledTx, volumeMore, reached, firstTxDate, isOG, totalWallets };
+  return {
+    txCount,
+    nftCount,
+    nftMore,
+    volumeEth,
+    sampledTx,
+    volumeMore,
+    reached,
+    firstTxDate,
+    isOG,
+    totalWallets,
+    tydroPoints,
+  };
 }
 
 function InkBlotGauge({ percent, color }) {
@@ -329,6 +361,7 @@ export default function InkChecker() {
         volume: Math.round(data.volumeEth * 10000) / 10000,
         nft: data.nftCount,
         og: data.isOG ? 1 : 0,
+        tydro: Math.round(data.tydroPoints * 100) / 100,
       }));
       setFirstTxDate(data.firstTxDate || null);
       setTotalWallets(data.totalWallets || null);
@@ -407,7 +440,7 @@ export default function InkChecker() {
           How much ink<br />did your wallet leave?
         </h1>
         <p className="text-sm mb-8" style={{ color: "#9186B0" }}>
-          Combines on-chain TX, volume, and NFTs with your Tydro points, Nado points, and Kraken verification into a
+          Combines on-chain TX, volume, NFTs, and Tydro points with your Nado points and Kraken verification into a
           single score.
         </p>
 
@@ -561,11 +594,12 @@ export default function InkChecker() {
 
         {!address && !loading && (
           <p className="text-xs font-mono mt-2" style={{ color: "#544A70" }}>
-            TX, volume, and NFTs are read automatically from the Ink explorer. You enter Tydro, Nado, and Kraken
-            yourself.
+            TX, volume, NFTs, and Tydro points are read automatically from the Ink explorer. You enter Nado and
+            Kraken yourself.
           </p>
         )}
       </div>
     </div>
   );
 }
+
