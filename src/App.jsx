@@ -86,16 +86,16 @@ function estimatePower(score, totalWallets) {
 }
 
 const DEFAULT_METRICS = {
-  tx: { label: "Transactions", cap: 300, weight: 18, source: "auto", type: "number", unit: "" },
+  tx: { label: "Transactions", cap: 300, weight: 8, source: "auto", type: "number", unit: "" },
   volume: { label: "Volume (ETH)", cap: 5, weight: 18, source: "auto", type: "number", unit: "Ξ", decimals: 6 },
-  nft: { label: "NFTs held", cap: 15, weight: 12, source: "auto", type: "number", unit: "" },
+  nft: { label: "NFTs held", cap: 15, weight: 5, source: "auto", type: "number", unit: "" },
   og: { label: "OG (first 3 months)", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
   domain: { label: ".ink domain", cap: 1, weight: 8, source: "auto", type: "boolean", unit: "" },
   contracts: { label: "Distinct contracts used", cap: 15, weight: 10, source: "auto", type: "number", unit: "" },
   gas: { label: "Gas spent (ETH)", cap: 0.0005, weight: 8, source: "auto", type: "number", unit: "Ξ", decimals: 8 },
-  tydro: { label: "Tydro points", cap: 5000, weight: 18, source: "auto", type: "number", unit: "pts" },
-  nado: { label: "Nado points", cap: 5000, weight: 14, source: "manual", type: "number", unit: "pts" },
-  kraken: { label: "Kraken verified", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
+  tydro: { label: "Tydro points", cap: 5000, weight: 26, source: "auto", type: "number", unit: "pts" },
+  nado: { label: "Nado points", cap: 5000, weight: 22, source: "manual", type: "number", unit: "pts" },
+  kraken: { label: "Kraken verified", cap: 1, weight: 16, source: "auto", type: "boolean", unit: "" },
 };
 
 function isValidAddress(addr) {
