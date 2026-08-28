@@ -4,6 +4,7 @@ import { Loader2, Search, ChevronDown, ChevronUp, Check, AlertTriangle, Copy, Fe
 const API_BASE = "https://explorer.inkonchain.com/api/v2";
 const LEGACY_API_BASE = "https://explorer.inkonchain.com/api";
 const TYDRO_POINTS_TOKEN = "0x40aBd730Cc9dA34a8EE9823fEaBDBa35E50c4ac7";
+const ZNS_DOMAIN_CONTRACT = "0xFb2Cd41a8aeC89EFBb19575C6c48d872cE97A0A5";
 
 // Kraken Verify (EAS attestations on Ink) — addresses/schema straight from @krakenfx/verify.
 const INK_RPC_URL = "https://rpc-gel.inkonchain.com";
@@ -89,6 +90,9 @@ const DEFAULT_METRICS = {
   volume: { label: "Volume (ETH)", cap: 5, weight: 18, source: "auto", type: "number", unit: "Ξ" },
   nft: { label: "NFTs held", cap: 15, weight: 12, source: "auto", type: "number", unit: "" },
   og: { label: "OG (first 3 months)", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
+  domain: { label: ".ink domain", cap: 1, weight: 8, source: "auto", type: "boolean", unit: "" },
+  contracts: { label: "Distinct contracts used", cap: 15, weight: 10, source: "auto", type: "number", unit: "" },
+  gas: { label: "Gas spent (ETH)", cap: 0.03, weight: 8, source: "auto", type: "number", unit: "Ξ" },
   tydro: { label: "Tydro points", cap: 5000, weight: 18, source: "auto", type: "number", unit: "pts" },
   nado: { label: "Nado points", cap: 5000, weight: 14, source: "manual", type: "number", unit: "pts" },
   kraken: { label: "Kraken verified", cap: 1, weight: 10, source: "auto", type: "boolean", unit: "" },
@@ -163,31 +167,54 @@ async function fetchAutoData(address) {
 
   let nftCount = 0;
   let nftMore = false;
+  let hasInkDomain = false;
   if (nftRes.status === "fulfilled") {
     const data = await safeJson(nftRes.value);
     if (data && Array.isArray(data.items)) {
       nftCount = data.items.length;
       nftMore = !!data.next_page_params;
+      hasInkDomain = data.items.some((it) => {
+        const collAddr =
+          it.token && (it.token.address_hash || it.token.address || it.token.hash);
+        return collAddr && collAddr.toLowerCase() === ZNS_DOMAIN_CONTRACT.toLowerCase();
+      });
     }
   }
 
   let volumeEth = 0;
   let sampledTx = 0;
   let volumeMore = false;
+  let contractDiversity = 0;
+  let gasSpentEth = 0;
   if (txRes.status === "fulfilled") {
     const data = await safeJson(txRes.value);
     if (data && Array.isArray(data.items)) {
       sampledTx = data.items.length;
       volumeMore = !!data.next_page_params;
       let totalWei = 0n;
+      let totalFeeWei = 0n;
+      const contractSet = new Set();
       for (const tx of data.items) {
         try {
           if (tx.value) totalWei += BigInt(tx.value);
         } catch {
           /* skip malformed value */
         }
+        try {
+          if (tx.fee && tx.fee.value) {
+            totalFeeWei += BigInt(tx.fee.value);
+          } else if (tx.gas_used && tx.gas_price) {
+            totalFeeWei += BigInt(tx.gas_used) * BigInt(tx.gas_price);
+          }
+        } catch {
+          /* skip malformed fee */
+        }
+        const toAddr = tx.to && (tx.to.hash || tx.to.address_hash || tx.to.address);
+        if (toAddr) contractSet.add(toAddr.toLowerCase());
       }
       volumeEth = Number(totalWei) / 1e18;
+      gasSpentEth = Number(totalFeeWei) / 1e18;
+      contractDiversity = contractSet.size;
     }
   }
 
@@ -206,6 +233,9 @@ async function fetchAutoData(address) {
     totalWallets,
     tydroPoints,
     isKrakenVerified,
+    hasInkDomain,
+    contractDiversity,
+    gasSpentEth,
   };
 }
 
@@ -382,7 +412,18 @@ export default function InkChecker() {
   const [copied, setCopied] = useState(false);
 
   const [metrics, setMetrics] = useState(DEFAULT_METRICS);
-  const [values, setValues] = useState({ tx: 0, volume: 0, nft: 0, og: 0, tydro: 0, nado: 0, kraken: 0 });
+  const [values, setValues] = useState({
+    tx: 0,
+    volume: 0,
+    nft: 0,
+    og: 0,
+    tydro: 0,
+    nado: 0,
+    kraken: 0,
+    domain: 0,
+    contracts: 0,
+    gas: 0,
+  });
   const [sampleNote, setSampleNote] = useState(null);
   const [firstTxDate, setFirstTxDate] = useState(null);
   const [totalWallets, setTotalWallets] = useState(null);
@@ -414,12 +455,15 @@ export default function InkChecker() {
         og: data.isOG ? 1 : 0,
         tydro: Math.round(data.tydroPoints * 100) / 100,
         kraken: data.isKrakenVerified ? 1 : 0,
+        domain: data.hasInkDomain ? 1 : 0,
+        contracts: data.contractDiversity,
+        gas: Math.round(data.gasSpentEth * 1000000) / 1000000,
       }));
       setFirstTxDate(data.firstTxDate || null);
       setTotalWallets(data.totalWallets || null);
       if (data.volumeMore || data.nftMore) {
         setSampleNote(
-          `Volume calculated from the last ${data.sampledTx || 50} tx${
+          `Volume, contracts, and gas are calculated from the last ${data.sampledTx || 50} tx${
             data.nftMore ? " · there may be more NFTs than shown" : ""
           }.`
         );
@@ -506,8 +550,8 @@ export default function InkChecker() {
           How much ink<br />did your wallet leave?
         </h1>
         <p className="text-sm mb-8" style={{ color: "#9186B0" }}>
-          Reads on-chain TX, volume, NFTs, Tydro points, and Kraken verification automatically, then combines it
-          with your Nado points into a single score.
+          Reads on-chain TX, volume, NFTs, Tydro points, Kraken verification, .ink domain ownership, contract
+          diversity, and gas spent automatically, then combines it with your Nado points into a single score.
         </p>
 
         <div className="flex gap-2 mb-2">
