@@ -40,8 +40,8 @@ async function checkKrakenVerified(address) {
     const hex = raw.replace(/^0x/, "");
     const words = hex.match(/.{1,64}/g) || [];
     // words[0] is the top-level tuple offset; the tuple's static fields start at words[1].
-    const expirationTime = BigInt("0x" + (words[3] || "0"));
-    const revocationTime = BigInt("0x" + (words[4] || "0"));
+    const expirationTime = BigInt("0x" + (words[4] || "0"));
+    const revocationTime = BigInt("0x" + (words[5] || "0"));
     const now = BigInt(Math.floor(Date.now() / 1000));
     const isExpired = expirationTime !== 0n && expirationTime <= now;
     const isRevoked = revocationTime > 0n;
